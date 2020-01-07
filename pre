@@ -7,33 +7,106 @@ Created on Tue Jan  7 11:06:58 2020
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-
-
-
-# 경로 수동입력 'D:\\autoROI_CNN\\1\\autoROIraw_1.1'
-
-path = "./"
-file_list = os.listdir(path)
-
-print ("file_list: {}".format(file_list))
-
-# tif, csv file list 
-
-# tif file import
-
-mspath = 'D:\\autoROI_CNN\\1\\autoROIraw_1.1\\Image1_R.tif'
-
 from skimage import io
-im = io.imread(mspath)
+import pandas as pd
 
-plt.imshow(np.mean(im, axis=0))
+# In[] tif, csv file list
+path1 = 'D:\\autoROI_CNN\\'
+file_list1 = os.listdir(path1)
 
-# tif, turboreg 오류해결
+pathsave=[]; [pathsave.append([]) for u in range(len(file_list1))]
+for i1, SE in enumerate(file_list1): 
+    file_list2 = os.listdir(path1 + SE)
+    [pathsave[i1].append([]) for u in range(len(file_list2))]
+    for i2, se in enumerate(file_list2):
+        file_list3 = os.listdir(path1 + SE + '\\' + se)
+        [pathsave[i1][i2].append([]) for u in range(3)]
+        
+        pathsave[i1][i2][2] = path1 + SE + '\\' + se + '\\'
+        
+        for k in range(len(file_list3)):
+            file_name = file_list3[k]
+            extenstion = os.path.splitext(file_name)[-1] # extension
+
+            full_path = path1 + SE + '\\' + se + '\\' + file_name
+
+            if extenstion == '.tif':
+                pathsave[i1][i2][0].append(full_path) # 0 for tif
+
+            elif extenstion == '.csv':
+                pathsave[i1][i2][1].append(full_path) # 1 for csv
 
 
-# csv 순서대로 import
+# In[] tif, turboreg 오류해결 (이미지를 따로 저장하지 않으니, 다음 세션과 연결할것)
+SE = 0; se = 1
 
-# tif np.mean(a, axis=2)에 overay해서 시각화 
+im = io.imread(pathsave[SE][se][0][0])
+
+c1 = np.isnan(np.mean(np.mean(im, axis=2), axis=1))
+c2 = np.min(np.min(im, axis=2), axis=1) < -100000
+c3 = np.max(np.max(im, axis=2), axis=1) > +100000
+error = c1 + c2 + c3
+
+for i in np.where(error > 0)[0]:
+    plt.figure()
+    plt.imshow(im[i,:,:], cmap='gray')
+    plt.title(str(SE) + '_' + str(se) + '_' + str(i))
+    im[i,:,:] = im[i-1,:,:]; # 오류 프레임을 이전 프레임으로 대체 
+
+# In[] csv 순서대로 import, 
+# tif np.mean(a, axis=2)에 overay해서 시각화 (dev only)
+# + remodeling, 안에 들어온거 없애고,, 미싱된거 채우고 등등.. <- skip, imageJ 가 알아서 함.
+
+msframe = np.mean(im, axis=0)
+roilist = pathsave[SE][se][1]
+
+rowmax = msframe.shape[0]
+colmax = msframe.shape[1]
+
+plt.figure()
+plt.imshow(msframe)
+
+for i in [20]:
+    coordinate = np.array(pd.read_csv(roilist[i], header=None))
+    
+    col = np.array(np.round(coordinate[:,0]), dtype=int)
+    row = np.array(np.round(coordinate[:,1]), dtype=int)
+    
+    col[np.where(col == colmax)[0]] = colmax-1
+    row[np.where(row == rowmax)[0]] = rowmax-1
+    
+    msframe[row, col] = 255
+    plt.imshow(msframe)
+    
+    
+    
+## 저장하고 로드해보자
+
+mssave = []
+mssave.append(col); mssave.append(row)
+mssave2 = pd.DataFrame(np.transpose(np.array(mssave)))
+savepath = pathsave[SE][se][2]
+mssave2.to_csv(savepath + 'tmp.csv', header=False, index=False)
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
