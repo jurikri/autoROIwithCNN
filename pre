@@ -9,11 +9,13 @@ import matplotlib.pyplot as plt
 import os
 from skimage import io
 import pandas as pd
+import random
+import pickle 
 
 # In[] tif, csv file list
 path1 = 'D:\\autoROI_CNN\\'
 file_list1 = os.listdir(path1)
-
+dev = True # 개발용 시각화
 pathsave=[]; [pathsave.append([]) for u in range(len(file_list1))]
 for i1, SE in enumerate(file_list1): 
     file_list2 = os.listdir(path1 + SE)
@@ -38,55 +40,141 @@ for i1, SE in enumerate(file_list1):
 
 
 # In[] tif, turboreg 오류해결 (이미지를 따로 저장하지 않으니, 다음 세션과 연결할것)
-SE = 0; se = 1
 
-im = io.imread(pathsave[SE][se][0][0])
+X=[];Y=[];Z=[]
+# SE,se session 시작
+for SE in range(len(file_list1)):
+    file_list2 = os.listdir(path1 + file_list1[SE])
+    for se in range(len(file_list2)):
+        # In[]
+        im = io.imread(pathsave[SE][se][0][0])
+        
+        A = 
+        
+        # In tif, turboreg 오류해결 (이미지를 따로 저장하지 않으니, 다음 세션과 연결할것)
+        c1 = np.isnan(np.mean(np.mean(im, axis=2), axis=1))
+        c2 = np.min(np.min(im, axis=2), axis=1) < -100000
+        c3 = np.max(np.max(im, axis=2), axis=1) > +100000
+        error = c1 + c2 + c3
+        
+        for i in np.where(error > 0)[0]:
+            if dev or True:
+                plt.figure()
+                plt.imshow(im[i,:,:], cmap='gray')
+                plt.title(str(SE) + '_' + str(se) + '_' + str(i))
+                im[i,:,:] = im[i-1,:,:]; # 오류 프레임을 이전 프레임으로 대체 
+        
+        meanframe = np.mean(im, axis=0) # 데이터로 쓰진않음. ROI 위치 확인용
+        roilist = pathsave[SE][se][1]
+        
+        rowmax = meanframe.shape[0]
+        colmax = meanframe.shape[1]
+        
+        marker = 1000
+        if dev:
+            plt.figure()
+            plt.title(str(SE) + '_' + str(se))
+            plt.imshow(meanframe)
+            
+        # In csv 순서대로 import,
+        tmplabel = np.zeros((rowmax, colmax, len(roilist)))
+        for i in range(len(roilist)):
+            coordinate = np.array(pd.read_csv(roilist[i], header=None))
+            
+            col = np.array(np.round(coordinate[:,0]), dtype=int)
+            row = np.array(np.round(coordinate[:,1]), dtype=int)
+            
+            col[np.where(col >= colmax)[0]] = colmax-1
+            row[np.where(row >= rowmax)[0]] = rowmax-1
+            
+            col[np.where(col < 0)[0]] = 0
+            row[np.where(row < 0)[0]] = 0
 
-c1 = np.isnan(np.mean(np.mean(im, axis=2), axis=1))
-c2 = np.min(np.min(im, axis=2), axis=1) < -100000
-c3 = np.max(np.max(im, axis=2), axis=1) > +100000
-error = c1 + c2 + c3
+            top = np.min(row); bottom = np.max(row)
+            left = np.min(col); right = np.max(col)
+            # 경계면을 따라 속을 채움
+            for irow in range(top, bottom+1):
+                if irow in row:
+                    col_in_row = col[np.where(row==irow)[0]]
+                    tmplabel[irow, np.min(col_in_row):np.max(col_in_row)+1, i] = marker
+            for icol in range(left, right+1):
+                row_in_col = np.where(tmplabel[:, icol, i] == marker)[0]
+                tmplabel[np.min(row_in_col):np.max(row_in_col)+1, icol , i] = marker
+                
+                if np.min(row_in_col) == 0:
+                    print(i)
+        
+        if dev:
+            plt.figure()
+            plt.imshow(meanframe + np.sum(tmplabel, axis=2))
+            
+        label_row = np.where((np.sum(tmplabel, axis=2) > 0)==1)[0]
+        label_col = np.where((np.sum(tmplabel, axis=2) > 0)==1)[1]
+        
+        roidotNum = label_row.shape[0]
+        # roi
+        for i in range(roidotNum):
+            X.append(im[:,label_row[i], label_col[i]])
+            Y.append(1)
+            Z.append([SE,se,label_row[i], label_col[i]])
+        
+        # non_roi
+        seed = 0; cnt = 0
+        while cnt < roidotNum:
+            seed += 1
+            random.seed(seed)
+            random_row = random.randrange(rowmax+1)
+            random_col = random.randrange(colmax+1)
+            
+            if not(random_row in label_row and random_col in label_col):
+                X.append(im[:,label_row[i], label_col[i]])
+                Y.append(0)
+                Z.append([SE,se,label_row[i], label_col[i]])
+                cnt += 1
+        
+            # ROI 안쪽을 1 바깥쪽을 0으로 놓고, 전체 300 x 512가 label임.
+            # (시계열은 dot 단위로 하면되고, CNN은 2차원 이미지를 label로 사용이 가능한가?)
+            
+            
+            # 우선 한번 저장.. 형식은
+            # X, Y, Z
+            # X, dot 시계열
+            # Y, 1 or 0 ROI 내부이냐 아니냐, 1이 ROI
+            # Z = [SE,se,row,col]
+            # 외부저장장치에 저장
+        
+random.seed(seed)
+rix = random.sample(range(len(X)), len(X))
+X = np.array(X)[rix]
+Y = np.array(Y)[rix]
+Z = np.array(Z)[rix]
 
-for i in np.where(error > 0)[0]:
-    plt.figure()
-    plt.imshow(im[i,:,:], cmap='gray')
-    plt.title(str(SE) + '_' + str(se) + '_' + str(i))
-    im[i,:,:] = im[i-1,:,:]; # 오류 프레임을 이전 프레임으로 대체 
-
-# In[] csv 순서대로 import, 
-# tif np.mean(a, axis=2)에 overay해서 시각화 (dev only)
-# + remodeling, 안에 들어온거 없애고,, 미싱된거 채우고 등등.. <- skip, imageJ 가 알아서 함.
-
-msframe = np.mean(im, axis=0)
-roilist = pathsave[SE][se][1]
-
-rowmax = msframe.shape[0]
-colmax = msframe.shape[1]
-
-plt.figure()
-plt.imshow(msframe)
-
-for i in [20]:
-    coordinate = np.array(pd.read_csv(roilist[i], header=None))
-    
-    col = np.array(np.round(coordinate[:,0]), dtype=int)
-    row = np.array(np.round(coordinate[:,1]), dtype=int)
-    
-    col[np.where(col == colmax)[0]] = colmax-1
-    row[np.where(row == rowmax)[0]] = rowmax-1
-    
-    msframe[row, col] = 255
-    plt.imshow(msframe)
-    
-    
-    
-## 저장하고 로드해보자
-
-mssave = []
-mssave.append(col); mssave.append(row)
-mssave2 = pd.DataFrame(np.transpose(np.array(mssave)))
-savepath = pathsave[SE][se][2]
-mssave2.to_csv(savepath + 'tmp.csv', header=False, index=False)
+msdata = {'X' : X, 'Y' : Y, 'Z' : Z,}
+picklesavename = 'D:\\autoROI_CNN_result\\' + 'autoROI_rawdata.pickle'   
+with open(picklesavename, 'wb') as f:  # Python 3: open(..., 'wb')
+    pickle.dump(msdata , f, pickle.HIGHEST_PROTOCOL)
+    print(picklesavename, '저장되었습니다.')
+        
+        
+            # In[]
+            # 학습
+            # label 나누어서 time에 따른 시계열 뽑음
+            # 시계열 데이터 균일화
+            # 1차 모델 RNN 학습
+            # RNN으로 시계열을 없애고 동영상 -> 이미지로 변환
+            # score 매겨보고..
+            
+            # CNN, 이미지 to 이미지
+            
+            
+            
+            
+        ## 저장하고 로드해보자
+        #mssave = []
+        #mssave.append(col); mssave.append(row)
+        #mssave2 = pd.DataFrame(np.transpose(np.array(mssave)))
+        #savepath = pathsave[SE][se][2]
+        #mssave2.to_csv(savepath + 'tmp.csv', header=False, index=False)
     
 
 
