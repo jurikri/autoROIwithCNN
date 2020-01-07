@@ -1,0 +1,106 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jan  7 11:06:58 2020
+
+@author: msbak
+"""
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+
+
+
+# 경로 수동입력 'D:\\autoROI_CNN\\1\\autoROIraw_1.1'
+
+path = "./"
+file_list = os.listdir(path)
+
+print ("file_list: {}".format(file_list))
+
+# tif, csv file list 
+
+# tif file import
+
+mspath = 'D:\\autoROI_CNN\\1\\autoROIraw_1.1\\Image1_R.tif'
+
+from skimage import io
+im = io.imread(mspath)
+
+plt.imshow(np.mean(im, axis=0))
+
+# tif, turboreg 오류해결
+
+
+# csv 순서대로 import
+
+# tif np.mean(a, axis=2)에 overay해서 시각화 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
