@@ -48,14 +48,21 @@ for SE in range(len(file_list1)):
     for se in range(len(file_list2)):
         # In[]
         im = io.imread(pathsave[SE][se][0][0])
-        
-        A = 
-        
+
         # In tif, turboreg 오류해결 (이미지를 따로 저장하지 않으니, 다음 세션과 연결할것)
         c1 = np.isnan(np.mean(np.mean(im, axis=2), axis=1))
         c2 = np.min(np.min(im, axis=2), axis=1) < -100000
         c3 = np.max(np.max(im, axis=2), axis=1) > +100000
-        error = c1 + c2 + c3
+        
+        diff = np.zeros(im.shape[0]); diff[:] = np.nan
+        for frame in range(im.shape[0]):
+            diff_inframe = []
+            for irow in range(im.shape[1]-1):
+                diff_inframe.append(np.mean(np.abs(im[frame,irow,:]-im[frame,irow+1,:])))
+            diff[frame] = np.max(diff_inframe)
+        c4 = np.sum(diff > 10000) > 0
+
+        error = c1 + c2 + c3 + c4
         
         for i in np.where(error > 0)[0]:
             if dev or True:
