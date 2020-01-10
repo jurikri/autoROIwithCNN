@@ -10,7 +10,30 @@ import os
 from skimage import io
 import pandas as pd
 import random
-import pickle 
+import pickle
+
+FPS = 3.4
+def smoothListGaussian(array1,window):  
+     window = round(window)
+     degree = (window+1)/2
+     weight=np.array([1.0]*window)  
+     weightGauss=[]  
+
+     for i in range(window):  
+         i=i-degree+1  
+         frac=i/float(window)  
+         gauss=1/(np.exp((4*(frac))**2))  
+         weightGauss.append(gauss)  
+
+     weight=np.array(weightGauss)*weight  
+     smoothed=[0.0]*(array1.shape[0]-window)
+     
+     weight = weight / np.sum(weight) # nml
+
+     for i in range(len(smoothed)):  
+         smoothed[i]=sum(np.array(array1[i:i+window])*weight)/sum(weight)  
+
+     return smoothed 
 
 # In[] tif, csv file list
 path1 = 'D:\\autoROI_CNN\\'
@@ -39,13 +62,17 @@ for i1, SE in enumerate(file_list1):
                 pathsave[i1][i2][1].append(full_path) # 1 for csv
                 
 # In[] tif, turboreg 오류해결 (이미지를 따로 저장하지 않으니, 다음 세션과 연결할것)
-seed = 0  
+seed = 0; SE= 0; se= 0
 X=[];Y=[];Z=[]
 # SE,se session 시작
+
+roi_sequence=[] # 시간 label용 기록
+nonroi_sequence=[] # 시간 label용 기록
+
 mshist = []
 for SE in range(len(file_list1)):
     file_list2 = os.listdir(path1 + file_list1[SE])
-    for se in range(len(file_list2)):
+    for se in [1]: # range(len(file_list2)):
         print('SE', SE, 'se', se)
         im = io.imread(pathsave[SE][se][0][0])
         
@@ -117,62 +144,91 @@ for SE in range(len(file_list1)):
             
         roiframe = np.sum(tmplabel, axis=2)>0
         
+        # In[]
+        ## dev
+        cnn_step_size = 1
+        cnn_window_size = 3
+        ws = cnn_window_size
         
+        # 좌표 설정 (roi, nonroi)
+        matrix = np.array(im[0,:,:])
         
-        ## XYZ import
-        for frow in range(0,rowmax):
-            for fcol in range(0,colmax):
-                if roiframe[frow,fcol] == 1:
-                    xtmp = im[:,frow,fcol]
-                    xstd = np.std(xtmp)
-                    
-                    if xstd != 0:
-                        deltaSTD = xtmp/xstd
-                        mshist.append(np.mean(deltaSTD))
-                        X.append(deltaSTD)
-                        Y.append([0,1]) # label for roi
-                        Z.append([SE,se,frow,fcol])
+        roilist=[];
+        for k in range(2):
+            roilist.append(np.where(roiframe==1)[k])
+        roilist = np.transpose(np.array(roilist))
         
-        roidotNum = np.sum(roiframe)
-        cnt = 0
-        
-        for frow in range(0,rowmax):
-            for fcol in range(0,colmax): 
-                xtmp = im[:,frow,fcol]
-                xstd = np.std(xtmp)
-                    
-                if xstd != 0:
-                    deltaSTD = xtmp/xstd
-                    X.append(deltaSTD)
-                    Y.append([1,0]) # label for not roi
-                    Z.append([SE,se,frow,fcol])
-       
-        idxtmp_SE = np.zeros(np.array(Z).shape[0])
-        idxtmp_SE[np.where(np.array(Z)[:,0] == SE)[0]] = 1
-        idxtmp_se = np.zeros(np.array(Z).shape[0])
-        idxtmp_se[np.where(np.array(Z)[:,1] == se)[0]] = 1
-        idxtmp_y = np.zeros(np.array(Z).shape[0])
-        idxtmp_y[np.where(np.array(Y)[:,0] == 1)[0]] = 1
-        
-        ix = np.where((idxtmp_SE + idxtmp_se + idxtmp_y) == 3)[0] # 현재 SE, se에서 non-roi 모든 ix
-        if ix.shape[0] > roidotNum: 
-            dellist = random.sample(list(ix), ix.shape[0]-roidotNum)
-            X = list(np.delete(np.array(X), dellist, 0))
-            Y = list(np.delete(np.array(Y), dellist, 0))
-            Z = list(np.delete(np.array(Z), dellist, 0))
+        index_save=[]; label=[]
+        for k in range(roilist.shape[0]):
+            row = roilist[k][0]
+            col = roilist[k][1]
             
+            if row-ws >= 0 and col-ws >= 0 and row+ws <= matrix.shape[0] and col+ws <= matrix.shape[1]:
+                index_save.append([row,col])
+                label.append(1)
+        print('roi len', len(cnn_save))
+          
+        roiNum = roilist.shape[0]
+        print('roi 면적', (matrix.shape[0] * matrix.shape[1]) > roiNum)
         
-            # ROI 안쪽을 1 바깥쪽을 0으로 놓고, 전체 300 x 512가 label임.
-            # (시계열은 dot 단위로 하면되고, CNN은 2차원 이미지를 label로 사용이 가능한가?)
+        ## non roi 랜덤하게 설정
+        possible=[]
+        for row in range(ws,matrix.shape[0]-ws):
+            for col in range(ws,matrix.shape[1]-ws):
+                possible.append([row,col])
+        
+        random.shuffle(possible)
+        roilist2 = []
+        for u in range(roilist.shape[0]):
+            roilist2.append(list(roilist[u,:]))
+        
+        cnt = 0; test=np.zeros(matrix.shape)
+        for i in range(len(possible)):
+            if cnt > roilist.shape[0]:
+                break
+#            print(cnt)
+            row = possible[i][0]
+            col = possible[i][1]
+    
+            passsw=True
+            if [row,col] in roilist2:
+                passsw=False
+
+            if passsw:
+                index_save.append([row,col])
+                label.append(0)
+                
+                cnt += 1
+                test[row,col] = 1
+        
+        if dev:
+            plt.imshow(test + roiframe*2)
+        # In[]
+        
+        rnn_step_size = int(round(FPS*1))
+        rnn_window_size = int(round(FPS*6/2))
+        rws = rnn_window_size
+        
+        for i in range(len(index_save)):
+            row = index_save[i][0]
+            col = index_save[i][1]
             
-            # 우선 한번 저장.. 형식은
-            # X, Y, Z
-            # X, dot 시계열
-            # Y, 1 or 0 ROI 내부이냐 아니냐, 1이 ROI
-            # Z = [SE,se,row,col]
-            # 외부저장장치에 저장
+            mssignal = np.array(im[:,row,col])
             
-        print(np.sum(np.array(Y), axis=0))
+            raising=[]
+            for j in range(mssignal.shape[0]-1):
+                raising.append(mssignal[j+1] - mssignal[j])
+            
+            elit = np.argsort(raising)[::-1][:5]
+            for j in range(elit.shape[0]):
+                s = elit[j]-rws
+                e = elit[j]+rws
+                
+                if s >= 0 and e <= im.shape[1]:
+                    x_data = np.array(im[s:e,row-ws:row+ws,col-ws:col+ws])
+                    X.append(x_data)
+                    Y.append(label[i])
+                    Z.append([SE,se,row,col,j]) # [쥐번호, session번호, 세로, 가로, 프레임 위치]
 seed = 0      
 random.seed(seed)
 rix = random.sample(range(len(X)), len(X))
@@ -180,14 +236,26 @@ X = np.array(X)[rix]
 Y = np.array(Y)[rix]
 Z = np.array(Z)[rix]
 
+print('samples distribution...', np.mean(Y, axis=0))
+
+roi_t4=[]; nonroi_t4=[]
+for roi in [np.where(Y==1)]:
+    roi_t4.append(np.mean(X[roi]))
+
+for roi in [np.where(Y==0)]:
+    nonroi_t4.append(np.mean(X[roi]))
+
+print('snr', np.mean(roi_t4)/np.mean(nonroi_t4))
+
 msdata = {'X' : X, 'Y' : Y, 'Z' : Z, 'pathsave' : pathsave}
 picklesavename = 'D:\\autoROI_CNN_result\\' + 'autoROI_rawdata.pickle'   
 with open(picklesavename, 'wb') as f:  # Python 3: open(..., 'wb')
     pickle.dump(msdata , f, pickle.HIGHEST_PROTOCOL)
     print(picklesavename, '저장되었습니다.')
 
-if dev: 
-    plt.hist(mshist, bins=100)
+
+import sys
+sys.exit()
                 
 # In[] part2 - analysis
     
@@ -423,8 +491,9 @@ for u in range(test_x.shape[0]):
 
 
 
-
-
+#
+#       for row in range(ws, matrix.shape[0]-ws, cnn_step_size):
+#            for col in range(ws, matrix.shape[1]-ws, cnn_step_size):
 
 
 
