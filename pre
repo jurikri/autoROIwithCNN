@@ -37,18 +37,18 @@ for i1, SE in enumerate(file_list1):
 
             elif extenstion == '.csv':
                 pathsave[i1][i2][1].append(full_path) # 1 for csv
-
-
+                
 # In[] tif, turboreg 오류해결 (이미지를 따로 저장하지 않으니, 다음 세션과 연결할것)
-
+seed = 0  
 X=[];Y=[];Z=[]
 # SE,se session 시작
+mshist = []
 for SE in range(len(file_list1)):
     file_list2 = os.listdir(path1 + file_list1[SE])
     for se in range(len(file_list2)):
-        # In[]
+        print('SE', SE, 'se', se)
         im = io.imread(pathsave[SE][se][0][0])
-
+        
         # In tif, turboreg 오류해결 (이미지를 따로 저장하지 않으니, 다음 세션과 연결할것)
         c1 = np.isnan(np.mean(np.mean(im, axis=2), axis=1))
         c2 = np.min(np.min(im, axis=2), axis=1) < -100000
@@ -60,7 +60,7 @@ for SE in range(len(file_list1)):
             for irow in range(im.shape[1]-1):
                 diff_inframe.append(np.mean(np.abs(im[frame,irow,:]-im[frame,irow+1,:])))
             diff[frame] = np.max(diff_inframe)
-        c4 = np.sum(diff > 10000) > 0
+        c4 = diff > 10000
 
         error = c1 + c2 + c3 + c4
         
@@ -70,7 +70,10 @@ for SE in range(len(file_list1)):
                 plt.imshow(im[i,:,:], cmap='gray')
                 plt.title(str(SE) + '_' + str(se) + '_' + str(i))
                 im[i,:,:] = im[i-1,:,:]; # 오류 프레임을 이전 프레임으로 대체 
-        
+         
+        #왜 인지는 모르겠으나 음수값이 존재함. 모두 0으로 대체
+        im[im<0] = 0
+
         meanframe = np.mean(im, axis=0) # 데이터로 쓰진않음. ROI 위치 확인용
         roilist = pathsave[SE][se][1]
         
@@ -83,7 +86,7 @@ for SE in range(len(file_list1)):
             plt.title(str(SE) + '_' + str(se))
             plt.imshow(meanframe)
             
-        # In csv 순서대로 import,
+        # In ROI.csv 순서대로 import,
         tmplabel = np.zeros((rowmax, colmax, len(roilist)))
         for i in range(len(roilist)):
             coordinate = np.array(pd.read_csv(roilist[i], header=None))
@@ -107,41 +110,60 @@ for SE in range(len(file_list1)):
             for icol in range(left, right+1):
                 row_in_col = np.where(tmplabel[:, icol, i] == marker)[0]
                 tmplabel[np.min(row_in_col):np.max(row_in_col)+1, icol , i] = marker
-                
-                if np.min(row_in_col) == 0:
-                    print(i)
         
         if dev:
             plt.figure()
             plt.imshow(meanframe + np.sum(tmplabel, axis=2))
             
-        label_row = np.where((np.sum(tmplabel, axis=2) > 0)==1)[0]
-        label_col = np.where((np.sum(tmplabel, axis=2) > 0)==1)[1]
+        roiframe = np.sum(tmplabel, axis=2)>0
         
-        roidotNum = label_row.shape[0]
-        # roi
-        for i in range(roidotNum):
-            X.append(im[:,label_row[i], label_col[i]])
-            Y.append(1)
-            Z.append([SE,se,label_row[i], label_col[i]])
         
-        # non_roi
-        seed = 0; cnt = 0
-        while cnt < roidotNum:
-            seed += 1
-            random.seed(seed)
-            random_row = random.randrange(rowmax+1)
-            random_col = random.randrange(colmax+1)
+        
+        ## XYZ import
+        for frow in range(0,rowmax):
+            for fcol in range(0,colmax):
+                if roiframe[frow,fcol] == 1:
+                    xtmp = im[:,frow,fcol]
+                    xstd = np.std(xtmp)
+                    
+                    if xstd != 0:
+                        deltaSTD = xtmp/xstd
+                        mshist.append(np.mean(deltaSTD))
+                        X.append(deltaSTD)
+                        Y.append([0,1]) # label for roi
+                        Z.append([SE,se,frow,fcol])
+        
+        roidotNum = np.sum(roiframe)
+        cnt = 0
+        
+        for frow in range(0,rowmax):
+            for fcol in range(0,colmax): 
+                xtmp = im[:,frow,fcol]
+                xstd = np.std(xtmp)
+                    
+                if xstd != 0:
+                    deltaSTD = xtmp/xstd
+                    X.append(deltaSTD)
+                    Y.append([1,0]) # label for not roi
+                    Z.append([SE,se,frow,fcol])
+       
+        idxtmp_SE = np.zeros(np.array(Z).shape[0])
+        idxtmp_SE[np.where(np.array(Z)[:,0] == SE)[0]] = 1
+        idxtmp_se = np.zeros(np.array(Z).shape[0])
+        idxtmp_se[np.where(np.array(Z)[:,1] == se)[0]] = 1
+        idxtmp_y = np.zeros(np.array(Z).shape[0])
+        idxtmp_y[np.where(np.array(Y)[:,0] == 1)[0]] = 1
+        
+        ix = np.where((idxtmp_SE + idxtmp_se + idxtmp_y) == 3)[0] # 현재 SE, se에서 non-roi 모든 ix
+        if ix.shape[0] > roidotNum: 
+            dellist = random.sample(list(ix), ix.shape[0]-roidotNum)
+            X = list(np.delete(np.array(X), dellist, 0))
+            Y = list(np.delete(np.array(Y), dellist, 0))
+            Z = list(np.delete(np.array(Z), dellist, 0))
             
-            if not(random_row in label_row and random_col in label_col):
-                X.append(im[:,label_row[i], label_col[i]])
-                Y.append(0)
-                Z.append([SE,se,label_row[i], label_col[i]])
-                cnt += 1
         
             # ROI 안쪽을 1 바깥쪽을 0으로 놓고, 전체 300 x 512가 label임.
             # (시계열은 dot 단위로 하면되고, CNN은 2차원 이미지를 label로 사용이 가능한가?)
-            
             
             # 우선 한번 저장.. 형식은
             # X, Y, Z
@@ -149,32 +171,213 @@ for SE in range(len(file_list1)):
             # Y, 1 or 0 ROI 내부이냐 아니냐, 1이 ROI
             # Z = [SE,se,row,col]
             # 외부저장장치에 저장
-        
+            
+        print(np.sum(np.array(Y), axis=0))
+seed = 0      
 random.seed(seed)
 rix = random.sample(range(len(X)), len(X))
 X = np.array(X)[rix]
 Y = np.array(Y)[rix]
 Z = np.array(Z)[rix]
 
-msdata = {'X' : X, 'Y' : Y, 'Z' : Z,}
+msdata = {'X' : X, 'Y' : Y, 'Z' : Z, 'pathsave' : pathsave}
 picklesavename = 'D:\\autoROI_CNN_result\\' + 'autoROI_rawdata.pickle'   
 with open(picklesavename, 'wb') as f:  # Python 3: open(..., 'wb')
     pickle.dump(msdata , f, pickle.HIGHEST_PROTOCOL)
     print(picklesavename, '저장되었습니다.')
-        
-        
-            # In[]
-            # 학습
-            # label 나누어서 time에 따른 시계열 뽑음
-            # 시계열 데이터 균일화
-            # 1차 모델 RNN 학습
-            # RNN으로 시계열을 없애고 동영상 -> 이미지로 변환
-            # score 매겨보고..
-            
-            # CNN, 이미지 to 이미지
-            
-            
-            
+
+if dev: 
+    plt.hist(mshist, bins=100)
+                
+# In[] part2 - analysis
+    
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from skimage import io
+import pandas as pd
+import random
+import pickle 
+    
+from datetime import datetime
+from keras import regularizers
+from keras.layers.core import Dropout
+from keras import initializers
+import keras
+from keras.layers.core import Dense, Activation
+from keras.layers.recurrent import LSTM
+from keras.layers.wrappers import Bidirectional
+from keras.optimizers import Adam
+    
+# 학습
+# label 나누어서 time에 따른 시계열 뽑음
+# 시계열 데이터 균일화
+# 1차 모델 RNN 학습
+# RNN으로 시계열을 없애고 동영상 -> 이미지로 변환
+# score 매겨보고..
+
+# CNN, 이미지 to 이미지
+picklesavename = 'D:\\autoROI_CNN_result\\' + 'autoROI_rawdata.pickle'           
+with open(picklesavename, 'rb') as f:  # Python 3: open(..., 'rb')
+    msdata_load = pickle.load(f)            
+
+X = msdata_load['X']
+Y = msdata_load['Y']
+Z = msdata_load['Z']       
+pathsave = msdata_load['pathsave'] 
+# X 길이 통일, 전처리
+lensave = []
+for u in range(X.shape[0]):
+    lensave.append(X[u].shape[0])
+length = np.min(lensave)
+print('minimum frame length is...', np.min(lensave))
+X2=[]
+for u in range(X.shape[0]):
+    X2.append(X[u][:length])
+X = np.reshape(X2, (1, np.array(X2).shape[0], np.array(X2).shape[1])); del X2
+# X[sequence segment, datanum, sequence legnth]
+
+# training set list 뽑기
+# [SE,se,row,col]
+mouselist = list(set(Z[:,0]))
+
+# RNN model 정의
+msunit = 1 # 시계열 분할 정도
+fn = 1 # 시계열 분할 확장 (나중에 n_in으로 통합되야.. 현재는 전혀 안쓰므로 남겨만 놓겠음)
+inputsize = np.zeros(msunit *fn, dtype=int) 
+for unit in range(msunit *fn):
+    inputsize[unit] = X[unit].shape[1]
+n_in =  1 # number of features
+n_out = 2 # number of class
+n_hidden = int(8 * 3) # LSTM node 갯수, bidirection 이기 때문에 2배수로 들어감.
+layer_1 = int(8 * 3) # fully conneted laye node 갯수 # 8
+l2_rate = 0.25 # regularization 상수
+dropout_rate1 = 0.20 # dropout late1
+dropout_rate2 = 0.10 # dropout late2
+lr = 1e-3 # learning rate
+batch_size = 2**11
+
+def keras_setup():
+    #### keras #### keras  #### keras #### keras  #### keras #### keras  #### keras #### keras  #### keras #### keras  #### keras #### keras
+    
+    dt = datetime.now()
+    idcode = dt.year * 10**4 + dt.month * 10**(4-2) + dt.day * 10**(4-4) + dt.hour * 10**(4-6)
+
+    #init = initializers.glorot_normal(seed=None)
+
+    init = initializers.he_uniform(seed=seed) # he initializer를 seed 없이 매번 random하게 사용 -> seed 줌
+    
+    input1 = []; [input1.append([]) for i in range(msunit *fn)] # 최초 input layer
+    input2 = []; [input2.append([]) for i in range(msunit *fn)] # input1을 받아서 끝까지 이어지는 변수
+    
+    for unit in range(msunit *fn):
+        input1[unit] = keras.layers.Input(shape=(inputsize[unit], n_in)) # 각 병렬 layer shape에 따라 input 받음
+        input2[unit] = Bidirectional(LSTM(n_hidden))(input1[unit]) # biRNN -> 시계열에서 단일 value로 나감
+        input2[unit] = Dense(layer_1, kernel_initializer = init, activation='relu')(input2[unit]) # fully conneted layers, relu
+        input2[unit] = Dropout(dropout_rate1)(input2[unit]) # dropout
+    
+    if msunit *fn > 1:
+        added = keras.layers.Add()(input2) # 병렬구조를 여기서 모두 합침
+    elif msunit *fn == 1:
+        added = input2[0] # 단일 segment를 사용할경우 merge 되지 않음. (할필요 없음)
+
+    merge_1 = Dense(layer_1, kernel_initializer = init, activation='relu')(added) # fully conneted layers, relu
+    merge_2 = Dropout(dropout_rate2)(merge_1) # dropout
+    merge_2 = Dense(n_out, kernel_initializer = init, activation='sigmoid')(merge_2) # fully conneted layers, sigmoid
+    merge_3 = Dense(n_out, input_dim=n_out, kernel_regularizer=regularizers.l2(l2_rate))(merge_2) # regularization
+    merge_4 = Activation('softmax')(merge_3) # activation as softmax function
+    
+    model = keras.models.Model(inputs=input1, outputs=merge_4) # input output 선언
+    model.compile(loss='categorical_crossentropy', optimizer=Adam(lr=lr, beta_1=0.9, beta_2=0.999), metrics=['accuracy']) # optimizer
+    
+    #### keras #### keras  #### keras #### keras  #### keras #### keras  #### keras #### keras  #### keras #### keras  #### keras #### keras
+    return model, idcode
+
+seed = 1
+model, idcode = keras_setup()    
+RESULT_SAVE_PATH = 'D:\\autoROI_CNN_result\\'    
+initial_weightsave = RESULT_SAVE_PATH + 'initial_weight.h5'
+model.save_weights(initial_weightsave)
+
+
+## 시각화
+if dev:
+    for u in range(40,50):
+        plt.figure()
+        plt.title(str(Z[u,0]) + '_' + str(Z[u,1]) + '_roi+-' + str(Y[u,1]))
+        plt.plot(X[0,u,:])
+
+# 학습시작
+# Cross validation 구현, training
+# In[]
+i=0
+for i in range(len(mouselist)):
+    mouseNum = mouselist[i]
+    
+#    dellist = np.where(Z[:,0]==mouseNum)[0] # [SE,se,row,col]
+    dellist = random.sample(range(X.shape[1]), int(round(X.shape[1]/10)))
+    
+    tr_x = np.delete(X[0,:,:], dellist, 0)
+    tr_x = np.reshape(tr_x, (tr_x.shape[0], tr_x.shape[1], 1))
+    tr_y = np.delete(Y, dellist, 0)
+    
+    # validation
+    valid_x = X[0,:,:][dellist]
+    valid_x = np.reshape(valid_x, (valid_x.shape[0], valid_x.shape[1], 1))
+    valid_y = Y[dellist]
+    valid_set = (valid_x, valid_y)
+    
+    model.fit(tr_x, tr_y, batch_size = batch_size, epochs = 100, validation_data = valid_set)
+
+
+
+# In[] test for RNN
+
+# [SE,se,row,col]
+testSE = 0; testse = 1
+idxtmp_SE = np.zeros(Z.shape[0])
+idxtmp_SE[np.where(Z[:,0] == testSE)[0]] = 1
+idxtmp_se = np.zeros(Z.shape[0])
+idxtmp_se[np.where(Z[:,1] == testse)[0]] = 1
+
+ix = np.where((idxtmp_SE + idxtmp_se) == 2)[0]
+test = X[0,ix,:]
+Z[ix,:]
+
+test_x = np.reshape(test, (test.shape[0], test.shape[1], 1))
+
+result = []
+for u in range(test_x.shape[0]):
+    print(u)
+    tmp = test_x[u:u+1,:,:]
+    result.append(model.predict(tmp)[0][1])
+
+## test후, 2차원 이미지로 다시 복구
+## CNN 모델 정의 (RNN - CNN 모델 두개 사용하려면, cv를 두번 해야함.)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             
         ## 저장하고 로드해보자
         #mssave = []
@@ -183,8 +386,20 @@ with open(picklesavename, 'wb') as f:  # Python 3: open(..., 'wb')
         #savepath = pathsave[SE][se][2]
         #mssave2.to_csv(savepath + 'tmp.csv', header=False, index=False)
     
-
-
+#
+#        # non_roi
+#        seed = 0; cnt = 0
+#        while cnt < roidotNum:
+#            seed += 1
+#            random.seed(seed)
+#            random_row = random.randrange(rowmax+1)
+#            random_col = random.randrange(colmax+1)
+#            
+#            if not(random_row in label_row and random_col in label_col):
+#                X.append(im[:,label_row[i], label_col[i]])
+#                Y.append(0)
+#                Z.append([SE,se,label_row[i], label_col[i]])
+#                cnt += 1
 
 
 
