@@ -1,0 +1,21 @@
+macro "ExportROI" {
+inputdir = getDirectory("Choose a directory containing .roi files");
+filelist = getFileList(inputdir);
+for (i = 0; i < filelist.length; i++) {
+currfile = filelist[i];
+l = lengthOf(currfile);
+shortname = substring(currfile, 0, l-4);
+ext = substring(currfile, l-4, l);
+if (ext == ".roi") {
+open(inputdir + currfile);
+getSelectionCoordinates(xpoints, ypoints);
+string = "";
+for (j = 0; j < xpoints.length; j++) {
+string = string + "" + xpoints[j] + "," + ypoints[j] + "\n";
+}
+outname = shortname + ".csv";
+File.saveString(string,inputdir + outname);
+close();
+}
+}
+}
